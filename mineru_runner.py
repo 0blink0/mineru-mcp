@@ -227,8 +227,10 @@ class MineruApiClient:
             first = api_response  # last resort: response IS the result
 
         # MinerU 2.7.x uses "md_content" key; fall back to "md" for other versions
-        md = first.get("md_content") or first.get("md", "")
+        md = first.get("md_content") or first.get("md") or ""
         content_list = first.get("content_list") or first.get("content_list_content")
+        logger.info("_build_result first_keys=%s md_len=%d has_cl=%s",
+                    list(first.keys())[:10], len(md), content_list is not None)
 
         if content_list and isinstance(content_list, list):
             parsed = parse_content_list(content_list, file_id)
@@ -243,6 +245,8 @@ class MineruApiClient:
             }
 
         if not parsed.get("content") and not parsed.get("elements"):
+            logger.error("Empty result: api_response top-level keys=%s first=%s",
+                         list(api_response.keys()), str(first)[:300])
             raise RuntimeError("mineru-api returned empty content and no elements")
 
         parsed["success"] = True
