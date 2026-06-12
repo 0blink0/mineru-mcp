@@ -141,6 +141,21 @@ async def server_info() -> Dict[str, Any]:
     }
 
 
+@mcp.tool()
+async def mineru_api_openapi() -> Dict[str, Any]:
+    """Fetch the OpenAPI spec from mineru-api to inspect available endpoints and parameters."""
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{settings.mineru_api_url}/openapi.json",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                return await resp.json()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
