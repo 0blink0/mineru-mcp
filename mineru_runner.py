@@ -172,7 +172,9 @@ class MineruApiClient:
             content_type="application/octet-stream",
         )
         data.add_field("backend", backend)
-        data.add_field("lang_list", json.dumps([lang]))
+        # lang_list is a Form array — send as repeated fields, not JSON string
+        for l in (lang.split(",") if "," in lang else [lang]):
+            data.add_field("lang_list", l.strip())
         data.add_field("return_content_list", "true")
         data.add_field("return_md", "true")
 
@@ -201,15 +203,26 @@ class MineruApiClient:
                 return await resp.json()
 
     def _build_result(self, api_response: Dict, file_id: str) -> Dict[str, Any]:
-        # /file_parse may return results nested under filename key or directly
-        results = api_response.get("results") or api_response.get("data") or {}
-        if isinstance(results, dict):
-            first = next(iter(results.values()), {})
-        elif isinstance(results, list) and results:
-            first = results[0] if isinstance(results[0], dict) else {}
-        else:
-            # Response might be the result directly
-            first = api_response
+        # MinerU 2.7.x /file_parse returns {filename: {md, content_list, ...}}
+        # Try each known wrapper key, then fall back to treating the whole response as the result
+        first: Dict = {}
+        for key in ("results", "data"):
+            val = api_response.get(key)
+            if isinstance(val, dict) and val:
+                first = next(iter(val.values()), {})
+                break
+            if isinstance(val, list) and val and isinstance(val[0], dict):
+                first = val[0]
+                break
+        if not first:
+            # Flat response: top-level keys are filenames or fields directly
+            # Pick first dict value that has 'md' or 'content_list'
+            for v in api_response.values():
+                if isinstance(v, dict) and ("md" in v or "content_list" in v):
+                    first = v
+                    break
+        if not first:
+            first = api_response  # last resort: response IS the result
 
         md = first.get("md", "")
         content_list = first.get("content_list")
