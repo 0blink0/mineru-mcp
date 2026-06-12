@@ -11,6 +11,7 @@ dependencies = [
     "fastmcp>=2.0",
     "uvicorn[standard]>=0.30",
     "aiohttp>=3.9",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]

@@ -8,6 +8,13 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+# Load .env before anything else reads os.getenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass
+
 from fastmcp import FastMCP
 
 from config import Settings
