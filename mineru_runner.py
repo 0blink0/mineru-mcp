@@ -205,34 +205,30 @@ class MineruApiClient:
                 return _json.loads(raw)
 
     def _build_result(self, api_response: Dict, file_id: str) -> Dict[str, Any]:
-        # MinerU 2.7.x /file_parse returns {filename: {md, content_list, ...}}
-        # Try each known wrapper key, then fall back to treating the whole response as the result
-        first: Dict = {}
-        for key in ("results", "data"):
-            val = api_response.get(key)
-            if isinstance(val, dict) and val:
-                first = next(iter(val.values()), {})
-                break
-            if isinstance(val, list) and val and isinstance(val[0], dict):
-                first = val[0]
-                break
-        if not first:
-            # Flat response: top-level keys are filenames or fields directly
-            # Pick first dict value that has 'md' or 'content_list'
-            for v in api_response.values():
-                if isinstance(v, dict) and ("md" in v or "content_list" in v):
-                    first = v
-                    break
-        if not first:
-            first = api_response  # last resort: response IS the result
+        # Response: {"backend":..., "version":..., "results": {"input": {"md_content":..., "content_list":...}}}
+        results = api_response.get("results", {})
+        if not isinstance(results, dict):
+            results = {}
+        # First value under "results" is the file result (key is usually "input" or the filename)
+        first: Dict = next(iter(results.values()), {}) if results else {}
 
-        # MinerU 2.7.x uses "md_content" key; fall back to "md" for other versions
-        md = first.get("md_content") or first.get("md") or ""
-        content_list = first.get("content_list") or first.get("content_list_content")
-        logger.info("_build_result first_keys=%s md_len=%d has_cl=%s",
-                    list(first.keys())[:10], len(md), content_list is not None)
+        # Scan all possible md field names
+        md = ""
+        for k in ("md_content", "md"):
+            v = first.get(k)
+            if v and isinstance(v, str):
+                md = v
+                break
 
-        if content_list and isinstance(content_list, list):
+        # content_list (optional)
+        content_list = first.get("content_list")
+        if not isinstance(content_list, list):
+            content_list = None
+
+        logger.info("_build_result results_keys=%s md_len=%d has_cl=%s",
+                    list(results.keys()), len(md), content_list is not None)
+
+        if content_list:
             parsed = parse_content_list(content_list, file_id)
             if md:
                 parsed["content"] = md
@@ -244,10 +240,11 @@ class MineruApiClient:
                 "metadata": {"parser_mode": "md_only"},
             }
 
-        if not parsed.get("content") and not parsed.get("elements"):
-            logger.error("Empty result: api_response top-level keys=%s first=%s",
-                         list(api_response.keys()), str(first)[:300])
-            raise RuntimeError("mineru-api returned empty content and no elements")
+        if not md and not parsed.get("elements"):
+            raise RuntimeError(
+                f"empty response — results keys: {list(results.keys())}, "
+                f"first keys: {list(first.keys())[:10]}"
+            )
 
         parsed["success"] = True
         parsed.setdefault("metadata", {}).update({
