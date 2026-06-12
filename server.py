@@ -153,7 +153,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.transport == "stdio":
-        mcp.run()
+        mcp.run(transport="stdio")
     else:
-        import uvicorn
-        uvicorn.run(mcp.http_app(), host=args.host, port=args.port)
+        # Use SSE transport for compatibility with Claude Code / Cursor .mcp.json
+        mcp.run(transport="sse", host=args.host, port=args.port)
