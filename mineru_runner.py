@@ -226,8 +226,9 @@ class MineruApiClient:
         if not first:
             first = api_response  # last resort: response IS the result
 
-        md = first.get("md", "")
-        content_list = first.get("content_list")
+        # MinerU 2.7.x uses "md_content" key; fall back to "md" for other versions
+        md = first.get("md_content") or first.get("md", "")
+        content_list = first.get("content_list") or first.get("content_list_content")
 
         if content_list and isinstance(content_list, list):
             parsed = parse_content_list(content_list, file_id)
