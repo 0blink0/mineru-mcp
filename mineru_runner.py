@@ -186,41 +186,30 @@ class MineruApiClient:
 
         return data
 
-    async def _submit_task(self, file_path: str, **kwargs) -> str:
+    async def _call_file_parse(self, file_path: str, **kwargs) -> Dict[str, Any]:
+        """POST to /file_parse (synchronous endpoint in MinerU 2.7.x)."""
         data = self._form_data(file_path, **kwargs)
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{self.api_url}/tasks",
+                f"{self.api_url}/file_parse",
                 data=data,
-                timeout=aiohttp.ClientTimeout(total=60),
+                timeout=aiohttp.ClientTimeout(total=self.timeout),
             ) as resp:
-                resp.raise_for_status()
-                body = await resp.json()
-                task_id = body.get("task_id")
-                if not task_id:
-                    raise RuntimeError(f"mineru-api /tasks did not return task_id: {body}")
-                logger.info("submitted task_id=%s", task_id)
-                return task_id
-
-    async def _poll_task(self, task_id: str) -> Dict[str, Any]:
-        url = f"{self.api_url}/tasks/{task_id}/result"
-        deadline = asyncio.get_event_loop().time() + self.timeout
-        async with aiohttp.ClientSession() as session:
-            while True:
-                if asyncio.get_event_loop().time() > deadline:
-                    raise RuntimeError(f"mineru task {task_id} timed out after {self.timeout}s")
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
-                    if resp.status == 409:
-                        body = await resp.json()
-                        raise RuntimeError(f"mineru task failed: {body.get('error', 'unknown')}")
-                    # 202 = still processing, keep polling
-                await asyncio.sleep(_POLL_INTERVAL)
+                if resp.status != 200:
+                    body = await resp.text()
+                    raise RuntimeError(f"mineru-api /file_parse returned {resp.status}: {body[:500]}")
+                return await resp.json()
 
     def _build_result(self, api_response: Dict, file_id: str) -> Dict[str, Any]:
-        results = api_response.get("results", {})
-        first = next(iter(results.values()), {}) if results else {}
+        # /file_parse may return results nested under filename key or directly
+        results = api_response.get("results") or api_response.get("data") or {}
+        if isinstance(results, dict):
+            first = next(iter(results.values()), {})
+        elif isinstance(results, list) and results:
+            first = results[0] if isinstance(results[0], dict) else {}
+        else:
+            # Response might be the result directly
+            first = api_response
 
         md = first.get("md", "")
         content_list = first.get("content_list")
@@ -259,14 +248,13 @@ class MineruApiClient:
     ) -> Dict[str, Any]:
         file_id = Path(file_path).name
         try:
-            task_id = await self._submit_task(
+            api_response = await self._call_file_parse(
                 file_path,
                 backend=backend,
                 lang=lang,
                 start_page=start_page,
                 end_page=end_page,
             )
-            api_response = await self._poll_task(task_id)
             return self._build_result(api_response, file_id)
         except Exception as exc:
             logger.exception("mineru parse failed: %s", file_path)
