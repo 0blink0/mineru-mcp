@@ -197,10 +197,12 @@ class MineruApiClient:
                 data=data,
                 timeout=aiohttp.ClientTimeout(total=self.timeout),
             ) as resp:
+                raw = await resp.text()
+                logger.info("file_parse status=%s body_head=%s", resp.status, raw[:500])
                 if resp.status != 200:
-                    body = await resp.text()
-                    raise RuntimeError(f"mineru-api /file_parse returned {resp.status}: {body[:500]}")
-                return await resp.json()
+                    raise RuntimeError(f"mineru-api /file_parse returned {resp.status}: {raw[:500]}")
+                import json as _json
+                return _json.loads(raw)
 
     def _build_result(self, api_response: Dict, file_id: str) -> Dict[str, Any]:
         # MinerU 2.7.x /file_parse returns {filename: {md, content_list, ...}}
