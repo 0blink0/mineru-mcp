@@ -10,8 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=2.0",
     "uvicorn[standard]>=0.30",
-    # MinerU is installed separately via conda/pip from the official repo
-    # magic-pdf[full] or magic-pdf[lite] — not listed here to avoid version conflicts
+    "aiohttp>=3.9",
 ]
 
 [project.optional-dependencies]

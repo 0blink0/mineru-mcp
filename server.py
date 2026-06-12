@@ -11,14 +11,14 @@ from typing import Any, Dict, Optional
 from fastmcp import FastMCP
 
 from config import Settings
-from mineru_runner import MineruRunner
+from mineru_runner import MineruApiClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 settings = Settings()
 mcp = FastMCP("mineru-mcp")
-runner = MineruRunner(settings)
+client = MineruApiClient(settings)
 
 _jobs: Dict[str, Dict[str, Any]] = {}
 
@@ -41,10 +41,7 @@ async def upload_document(
 ) -> Dict[str, Any]:
     """
     Upload a document for parsing. Supports chunked upload for large files.
-
-    For a single file: chunk_index=0, total_chunks=1.
-    For chunked upload: send chunks in order from 0 to total_chunks-1.
-    The file is ready to parse when the last chunk (chunk_index == total_chunks-1) is received.
+    chunk_index starts at 0. Send chunks in order; parse is ready when the last chunk is received.
     """
     jdir = _job_dir(job_id)
     jdir.mkdir(parents=True, exist_ok=True)
@@ -57,8 +54,7 @@ async def upload_document(
     with open(input_file, mode) as f:
         f.write(data)
 
-    is_last = chunk_index == total_chunks - 1
-    if is_last:
+    if chunk_index == total_chunks - 1:
         size = input_file.stat().st_size
         _jobs[job_id] = {"status": "uploaded", "file_path": str(input_file), "filename": filename}
         return {"job_id": job_id, "status": "uploaded", "size": size}
@@ -76,7 +72,7 @@ async def parse_document(
     end_page: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Parse an uploaded document with MinerU.
+    Parse an uploaded document via mineru-api.
     Call upload_document first to get a job_id with status=uploaded.
     """
     job = _jobs.get(job_id)
@@ -84,7 +80,7 @@ async def parse_document(
         return {"success": False, "error": f"job '{job_id}' not found or not ready — upload first"}
 
     _jobs[job_id]["status"] = "parsing"
-    result = await runner.parse(
+    result = await client.parse(
         job["file_path"],
         backend=backend,
         lang=lang,
@@ -104,10 +100,10 @@ async def parse_file(
     end_page: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Parse a file that already exists on the server by its local path.
+    Parse a file already on the server by its local path.
     Useful when the server has direct access to a shared storage volume.
     """
-    return await runner.parse(
+    return await client.parse(
         file_path,
         backend=backend,
         lang=lang,
@@ -118,17 +114,11 @@ async def parse_file(
 
 @mcp.tool()
 async def cleanup_job(job_id: str) -> Dict[str, Any]:
-    """Remove uploaded file and MinerU scratch directories for a job."""
+    """Remove uploaded file for a job."""
     jdir = _job_dir(job_id)
     if jdir.exists():
         shutil.rmtree(jdir, ignore_errors=True)
-
-    job = _jobs.pop(job_id, None)
-    if job:
-        scratch = job.get("scratch_root")
-        if scratch and Path(scratch).name.startswith("mineru_parse_"):
-            shutil.rmtree(scratch, ignore_errors=True)
-
+    _jobs.pop(job_id, None)
     return {"job_id": job_id, "status": "cleaned"}
 
 
@@ -137,6 +127,7 @@ async def server_info() -> Dict[str, Any]:
     """Return server configuration and active job count."""
     return {
         "service": "mineru-mcp",
+        "mineru_api_url": settings.mineru_api_url,
         "backend": settings.mineru_backend,
         "vlm_url": settings.mineru_vlm_http_url,
         "active_jobs": len(_jobs),
