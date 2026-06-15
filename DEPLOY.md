@@ -166,3 +166,6 @@ AutoDL 自定义服务外部访问地址（在 AutoDL 控制台「自定义服�
 | `vlm-http-client backend disabled` | mineru-api 绑定了 0.0.0.0 | 改为 `--host 127.0.0.1` |
 | pip 哈希校验失败 | 学术加速与 Aliyun 镜像冲突 | pip 安装时关闭学术加速，用清华镜像 |
 | MCP 外部无法访问 | 端口不是 6006 | `.env` 里 `MCP_PORT=6006` |
+| `GET /v1/models` 返回 500 | `prometheus_fastapi_instrumentator` 与 FastAPI 版本不兼容 | 执行以下 patch：`sed -i 's/route_name = route\.path/route_name = getattr(route, "path", None)/' /root/miniconda3/lib/python3.12/site-packages/prometheus_fastapi_instrumentator/routing.py`，然后重启 vLLM |
+| vLLM 重启报 `Free memory less than desired` | 上次进程被 Ctrl+C 后 GPU 显存未完全释放 | `pkill -f vllm && sleep 3`，再加 `--gpu-memory-utilization 0.45` 重启 |
+| 文件名太长报错 | 中文文件名 URL 编码后超出 Linux 限制 | `cp` 成短文件名后再解析 |
