@@ -7,6 +7,9 @@ name = "mineru-mcp"
 version = "0.1.0"
 description = "Standalone MinerU document parsing MCP service"
 requires-python = ">=3.10"
+
+[tool.hatch.build.targets.wheel]
+include = ["*.py"]
 dependencies = [
     "fastmcp>=2.0",
     "uvicorn[standard]>=0.30",
