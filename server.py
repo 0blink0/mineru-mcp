@@ -157,6 +157,47 @@ async def mineru_api_openapi() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# REST proxy — forwards non-MCP paths to mineru-api (WeKnora compatibility)
+# ---------------------------------------------------------------------------
+
+import aiohttp as _aiohttp
+import uvicorn as _uvicorn
+from starlette.applications import Starlette as _Starlette
+from starlette.requests import Request as _Request
+from starlette.responses import Response as _Response
+from starlette.routing import Route as _Route
+
+
+async def _api_proxy(request: _Request) -> _Response:
+    """Proxy everything that isn't /sse or /messages to mineru-api."""
+    body = await request.body()
+    drop = {"host", "content-length", "transfer-encoding"}
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in drop}
+    try:
+        async with _aiohttp.ClientSession() as sess:
+            async with sess.request(
+                method=request.method,
+                url=f"{settings.mineru_api_url}{request.url.path}",
+                data=body or None,
+                headers=headers,
+                params=dict(request.query_params),
+                timeout=_aiohttp.ClientTimeout(total=settings.mineru_timeout_sec),
+            ) as resp:
+                content = await resp.read()
+                return _Response(
+                    content=content,
+                    status_code=resp.status,
+                    media_type=resp.headers.get("content-type", "application/json"),
+                )
+    except Exception as exc:
+        return _Response(
+            content=f'{{"error": "{exc}"}}',
+            status_code=502,
+            media_type="application/json",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -170,5 +211,12 @@ if __name__ == "__main__":
     if args.transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        # Use SSE transport for compatibility with Claude Code / Cursor .mcp.json
-        mcp.run(transport="sse", host=args.host, port=args.port)
+        # Combined app: MCP SSE routes + REST proxy to mineru-api
+        # MCP routes (/sse, /messages) take priority; everything else is proxied.
+        mcp_asgi = mcp.http_app()
+        combined = _Starlette(routes=[
+            *mcp_asgi.routes,
+            _Route("/{path:path}", _api_proxy,
+                   methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"]),
+        ])
+        _uvicorn.run(combined, host=args.host, port=args.port, log_level="info")
